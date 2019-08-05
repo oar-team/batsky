@@ -1,17 +1,18 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h> // mkdir
 
-#define MAXCHAR 1000
+void _create_socket_directory(void);
+void _create_and_wait_connection(void);
+void _get_batsky_time(struct timeval *batsky_tv, struct timeval *real_tv);
 
 #define BATSKY_SOCK_DIR "/tmp/batsky"
-
 
 int batsky_init = 0;
 
@@ -19,8 +20,6 @@ int batsky_server_sockfd, batsky_client_sockfd;
 socklen_t batsky_client_len;
 struct sockaddr_un batsky_server_address;
 struct sockaddr_un  batsky_client_address;
-
-
 
 
 /*
@@ -34,14 +33,14 @@ struct sockaddr_un  batsky_client_address;
   7) Return
  */
 
-void _create_socket_directory() {
+void _create_socket_directory(void) {
     int status = mkdir(BATSKY_SOCK_DIR, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
     if (status) {
         perror("Create batsky sockets directory");
     }
 }
 
-void _create_and_wait_connection() {
+void _create_and_wait_connection(void) {
     char batsky_sock_name[256];
     pid_t pid = getpid();
 
@@ -77,7 +76,7 @@ void _get_batsky_time(struct timeval *batsky_tv, struct timeval *real_tv) {
 }
 
 
-int main() {
+void main(void) {
 
     struct timeval real_tv;
     struct timeval batsky_tv;
@@ -85,6 +84,7 @@ int main() {
     if (batsky_init == 0) {
         _create_socket_directory();
         _create_and_wait_connection();
+        batsky_init = 1;
     }
     if (gettimeofday(&real_tv, 0))
         perror("gtod");
