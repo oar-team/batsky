@@ -81,6 +81,10 @@ void main(void) {
     struct timeval real_tv;
     struct timeval batsky_tv;
 
+    if( access( BATSKY_SOCK_DIR, F_OK ) == -1 ) {
+        //return INLINE_SYSCALL (gettimeofday, 2, tv, tz);
+    }
+
     if (batsky_init == 0) {
         _create_socket_directory();
         _create_and_wait_connection();

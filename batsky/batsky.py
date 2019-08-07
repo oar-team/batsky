@@ -7,13 +7,19 @@ import click
 import pyinotify
 import socket
 import select
-
-LOG = logging.getLogger()
+import errno
 
 BATSKY_SOCK_DIR = '/tmp/batsky'
 
 fooleds = {}
 fd2fooleds = {}
+
+logger = logging.getLogger()
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s %(levelname)-6s %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.setLevel(logging.DEBUG)
 
 select_pipe_read, select_pipe_write  = os.pipe()
 
@@ -37,48 +43,78 @@ class ProcessFooled(object):
                 self.cmdline = cmdline_file.read().split('\0')[:-1]
                 #ret_val = data.replace('\0', ' '))
         except IOError as e:
-            print("IOError while opening proc file: {} {} ".format(pathname, str(e)))
+            logger.debug("IOError while opening proc file: {} {} ".format(pathname, str(e)))
     
         self.nb_call = 1
         self.status = 'active'
 
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.connect(pathname)
-
+        connected = False
+        while not connected:
+            try: 
+                self.sock.connect(pathname)
+                connected = True
+            except OSError as error:
+                if error.errno == errno.ECONNREFUSED:
+                    logger.debug("Connection refused for: %s",  pathname)
+                    time.sleep(0.001)
+                    connected = False
+    
         given_pid_bytes = self.sock.recv(4)
         given_pid = int.from_bytes(given_pid_bytes,byteorder='little')
+        
         assert self.pid == given_pid
 
         sec = self.sock.recv(8)
         usec = self.sock.recv(8)
-        print("First echo, time: ", int.from_bytes(sec,byteorder='little'), int.from_bytes(usec,byteorder='little'))
+        #logger.debug("New sock: %d",  self.sock.fileno())
+        logger.debug("First echo, time: {}.{}".format(int.from_bytes(sec,byteorder='little'),
+                                                      int.from_bytes(usec,byteorder='little')))
+        #print("First echo, time: {}.{}".format(int.from_bytes(sec,byteorder='little'),
+        #                                       int.from_bytes(usec,byteorder='little')))
+        
         self.sock.send(sec)
         self.sock.send(usec)
         fd2fooleds[self.sock.fileno()] = self
-        # Signal main loop of the new participant arrival 
+        # Signal main loop of the new participant arrival
         os.write(select_pipe_write, b'x')
 
 
 class EventHandler(pyinotify.ProcessEvent):
     def process_IN_CREATE(self, event):
-        print("Creating:", event.pathname)
+        logger.debug("Creating: %s", event.pathname)
         process_fooled =  ProcessFooled(event.pathname)
         fooleds[process_fooled.pid] = process_fooled
-        print("Cmdline:", process_fooled.cmdline)
+        logger.debug("Pid {} fd {} Cmdline: {}".format(process_fooled.pid,
+                                                       process_fooled.sock.fileno(),
+                                                       process_fooled.cmdline))
         
         
     def process_IN_DELETE(self, event):
-        print("Removing:", event.pathname)
+        #logger.debug("Removing: %s", event.pathname)
         pid = get_pid(event.pathname)
         if pid:
             fooleds[get_pid(pid)].status="finished"
         else:
-            print("Not a fooled process endpoint")
+            logger.debug("Not a fooled process endpoint")
         
 
 @click.command()
 @click.option('-e', '--echo', is_flag=True, help='Echo the time observed by the intercepted.')
-def cli(echo):
+@click.option('-d', '--debug', is_flag=True, help='Debug flag.')
+@click.option('-l', '--logfile', type=click.STRING, help='Specify log file.')
+@click.option('-m', '--master', type=click.STRING, help='Specify which hostname is the master.')
+def cli(echo,debug,logfile, master):
+    
+    if logfile:
+        fh = logging.FileHandler(logfile)
+        fh.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s %(levelname)-6s %(message)s')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh) 
+
+
+    logger.info('Master: %s', master)
 
     if not os.path.exists(BATSKY_SOCK_DIR):
         os.makedirs(BATSKY_SOCK_DIR)
@@ -90,25 +126,35 @@ def cli(echo):
     
     # main loop
     while True:
-        print("Main loop: wait on select")
-        ready_fds = select.select(list(fd2fooleds.keys()) + [select_pipe_read], [], [])
+        #logger.debug("Main loop: wait on select")
+        #logger.debug("select_pipe_read: %d", select_pipe_read)
+        ready_fds = select.select(list(fd2fooleds.keys()) + [select_pipe_read], [], list(fd2fooleds.keys()) + [select_pipe_read])
         for fd in ready_fds[0]:
             if select_pipe_read in ready_fds[0]:
                 # Add another fd to my_read_fds, etc.
-                print("New participant")
-                os.read(select_pipe_read, 1)
+                #logger.debug("New participant")
+                a= os.read(select_pipe_read, 1)
+                #logger.debug("read select_pipe: %d",a)
             else:
+                #logger.debug('receive from: %d', fd)
                 fool = fd2fooleds[fd]
                 sock = fool.sock
                 sec = sock.recv(8)
-                usec = sock.recv(8)
-                fool.nb_call += 1
-                print("echo # {}, time: {}.{}".format(fool.nb_call,
-                                                      int.from_bytes(sec,byteorder='little'),
-                                                      int.from_bytes(usec,byteorder='little'))
-                      )
-                sock.send(sec)
-                sock.send(usec)
+                if sec == b'':
+                    sock.close()
+                    fd2fooleds.pop(fd)
+                    #logger.debug("Socket is closed: %d", fd)
+                else:
+                    usec = sock.recv(8)
+                    fool.nb_call += 1
+                    logger.debug("echo # {}, time: {}.{}".format(fool.nb_call,
+                                                          int.from_bytes(sec,byteorder='little'),
+                                                          int.from_bytes(usec,byteorder='little'))
+                    )
+                    sock.send(sec)
+                    sock.send(usec)
+        for fd in ready_fds[2]:
+            logger.debug("Something happen to fd: %d", fd) 
         
     notifier.stop()
     
