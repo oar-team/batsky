@@ -64,7 +64,7 @@ class ProcessFooled(object):
         sec = self.sock.recv(8)
         usec = self.sock.recv(8)
         #logger.debug("New sock: %d",  self.sock.fileno())
-        logger.debug("E:{}: {}, time: {}.{}".format(fool.pid, fool.nb_call,
+        logger.debug("E:{}: {}, time: {}.{}".format(self.pid, self.nb_call,
                                                     int.from_bytes(sec,byteorder='little'),
                                                     int.from_bytes(usec,byteorder='little')))
         #print("First echo, time: {}.{}".format(int.from_bytes(sec,byteorder='little'),
