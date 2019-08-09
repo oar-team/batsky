@@ -15,11 +15,7 @@ fooleds = {}
 fd2fooleds = {}
 
 logger = logging.getLogger()
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s %(levelname)-6s %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-logger.setLevel(logging.DEBUG)
+
 
 select_pipe_read, select_pipe_write  = os.pipe()
 
@@ -68,8 +64,9 @@ class ProcessFooled(object):
         sec = self.sock.recv(8)
         usec = self.sock.recv(8)
         #logger.debug("New sock: %d",  self.sock.fileno())
-        logger.debug("First echo, time: {}.{}".format(int.from_bytes(sec,byteorder='little'),
-                                                      int.from_bytes(usec,byteorder='little')))
+        logger.debug("E:{}: {}, time: {}.{}".format(fool.pid, fool.nb_call,
+                                                    int.from_bytes(sec,byteorder='little'),
+                                                    int.from_bytes(usec,byteorder='little')))
         #print("First echo, time: {}.{}".format(int.from_bytes(sec,byteorder='little'),
         #                                       int.from_bytes(usec,byteorder='little')))
         
@@ -105,7 +102,10 @@ class EventHandler(pyinotify.ProcessEvent):
 @click.option('-l', '--logfile', type=click.STRING, help='Specify log file.')
 @click.option('-m', '--master', type=click.STRING, help='Specify which hostname is the master.')
 def cli(echo,debug,logfile, master):
-    
+
+    if debug:
+        logger.setLevel(logging.DEBUG)
+
     if logfile:
         fh = logging.FileHandler(logfile)
         fh.setLevel(logging.DEBUG)
@@ -113,7 +113,12 @@ def cli(echo,debug,logfile, master):
         fh.setFormatter(formatter)
         logger.addHandler(fh) 
 
-
+    else:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s %(levelname)-6s %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        
     logger.info('Master: %s', master)
 
     if not os.path.exists(BATSKY_SOCK_DIR):
@@ -147,10 +152,9 @@ def cli(echo,debug,logfile, master):
                 else:
                     usec = sock.recv(8)
                     fool.nb_call += 1
-                    logger.debug("echo # {}, time: {}.{}".format(fool.nb_call,
+                    logger.debug("E:{}: {}, time: {}.{}".format(fool.pid, fool.nb_call,
                                                           int.from_bytes(sec,byteorder='little'),
-                                                          int.from_bytes(usec,byteorder='little'))
-                    )
+                                                          int.from_bytes(usec,byteorder='little')))
                     sock.send(sec)
                     sock.send(usec)
         for fd in ready_fds[2]:
