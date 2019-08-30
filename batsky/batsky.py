@@ -135,7 +135,7 @@ def cli(echo,debug,logfile, master):
         #logger.debug("select_pipe_read: %d", select_pipe_read)
         ready_fds = select.select(list(fd2fooleds.keys()) + [select_pipe_read], [], list(fd2fooleds.keys()) + [select_pipe_read])
         for fd in ready_fds[0]:
-            if select_pipe_read in ready_fds[0]:
+            if fd == select_pipe_read:
                 # Add another fd to my_read_fds, etc.
                 #logger.debug("New participant")
                 a= os.read(select_pipe_read, 1)
