@@ -19,6 +19,7 @@ readme = read('README.rst')
 changelog = read('CHANGES.rst').replace('.. :changelog:', '')
 
 requirements = [
+    'pyzmq',
     'pyinotify',
     'click'
 ]
@@ -42,7 +43,7 @@ setup(
     install_requires=requirements,
     include_package_data=True,
     zip_safe=False,
-    description="Framework campanion to Batsim which control timeline according to simulation for legacy applications.",
+    description="Framework companion to Batsim which control timeline according to simulation for legacy applications.",
     long_description=readme + '\n\n' + changelog,
     keywords='batsky',
     license='BSD',
@@ -58,5 +59,6 @@ setup(
     entry_points='''
     [console_scripts]
     batsky=batsky.batsky:cli
+    batsky-controller=batsky.batsky_controller:cli
     ''',    
 )
