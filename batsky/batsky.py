@@ -26,6 +26,7 @@ mask = pyinotify.IN_DELETE | pyinotify.IN_CREATE  # watched events
 controller_sock = None
 
 def get_ask_send_time(fooled):
+
     sec = fooled.sock.recv(8)
     if sec == b'':
         fooled.sock.close()
@@ -42,7 +43,7 @@ def get_ask_send_time(fooled):
     controller_sock.send(('{}.{}'.format(int.from_bytes(sec,byteorder='little'),
                                                          int.from_bytes(usec,byteorder='little'))).encode('utf8')
     )
-    
+
     simulated_time = (controller_sock.recv(32)).decode('utf8')
     sec_usec = simulated_time.split('.')
 
@@ -89,7 +90,7 @@ class ProcessFooled(object):
                     time.sleep(0.001)
     
         given_pid_bytes = self.sock.recv(4)
-        given_pid = int.from_bytes(given_pid_bytes,byteorder='little')
+        given_pid = int.from_bytes(given_pid_bytes, byteorder='little')
         
         assert self.pid == given_pid
 
@@ -112,13 +113,15 @@ class EventHandler(pyinotify.ProcessEvent):
         
         
     def process_IN_DELETE(self, event):
-        #logger.debug("Removing: %s", event.pathname)
-        pid = get_pid(event.pathname)
-        if pid:
-            fooleds[get_pid(pid)].status="finished"
+        if event.pathname and type(event.pathname) == str: 
+            logger.debug("Removing: %s", event.pathname)
+            pid = get_pid(event.pathname)
+            if pid:
+                fooleds[get_pid(pid)].status="finished"
+            else:
+                logger.debug("Not a fooled process endpoint")
         else:
             logger.debug("Not a fooled process endpoint")
-        
 
 @click.command()
 @click.option('-d', '--debug', is_flag=True, help='Debug flag.')
@@ -157,12 +160,11 @@ def cli(debug, logfile, controller, controller_options):
 
     if controller and controller==socket.gethostname():
         import subprocess
-        cmd = ['batsky-controller','-d']
+        cmd = ['batsky-controller']
         if controller_options:
             cmd += controller_options.split()
         subprocess.Popen(cmd)
 
-    
     global controller_sock
     
     if controller:
@@ -181,20 +183,23 @@ def cli(debug, logfile, controller, controller_options):
     while True:
         #logger.debug("Main loop: wait on select")
         #logger.debug("select_pipe_read: %d", select_pipe_read)
-        ready_fds = select.select(list(fd2fooleds.keys()) + [select_pipe_read, controller_sock] , [], list(fd2fooleds.keys()) + [select_pipe_read])
+        ready_fds = select.select(list(fd2fooleds.keys()) + [select_pipe_read] , [], list(fd2fooleds.keys()) + [select_pipe_read])
+        #print(ready_fds[0])
         for fd in ready_fds[0]:
             if fd == select_pipe_read:
                 # Add another fd to my_read_fds, etc.
                 #logger.debug("New participant")
                 a= os.read(select_pipe_read, 1)
                 #logger.debug("read select_pipe: %d",a)
+            
             else:
                 #logger.debug('receive from: %d', fd)
+                assert(fd in fd2fooleds)
                 fooled = fd2fooleds[fd]
-
+        
                 if not get_ask_send_time(fooled):
-                     logger.error('Connection closed with: {} {}'.format(fooled.pid, fooled.cmdline))
-                     fd2fooleds.pop(fd)
+                     logger.info('Connection closed with: {} {}'.format(fooled.pid, fooled.cmdline))
+                     del fd2fooleds[fd]
 
         for fd in ready_fds[2]:
             logger.debug("Something happen to fd: %d", fd) 
