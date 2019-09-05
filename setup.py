@@ -59,6 +59,7 @@ setup(
     entry_points='''
     [console_scripts]
     batsky=batsky.batsky:cli
+    batsky-notify=batsky.batsky_notify:cli
     batsky-controller=batsky.batsky_controller:cli
     ''',    
 )
