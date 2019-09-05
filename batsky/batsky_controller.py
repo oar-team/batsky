@@ -48,7 +48,7 @@ class Controller(object):
                     self.start_time = requested_time
                     logger.info("Start_time: {} sec".format(self.start_time))
 
-                delta = requested_time - self.start_time
+                delta = (requested_time - self.start_time)/10 # fast machine ;)
                 if delta > self.simulated_time:
                     self.simulated_time = delta
 
