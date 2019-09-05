@@ -7,10 +7,13 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h> // mkdir
+#include <time.h>
 
-void _create_socket_directory(void);
+
 void _create_and_wait_connection(void);
-void _get_batsky_time(struct timeval *batsky_tv, struct timeval *real_tv);
+void _get_batsky_time(struct timeval *tv);
+int _gettimeofday (struct timeval *tv);
+
 
 #define BATSKY_SOCK_DIR "/tmp/batsky"
 
@@ -32,13 +35,6 @@ struct sockaddr_un  batsky_client_address;
   6) Wait time
   7) Return
  */
-
-void _create_socket_directory(void) {
-    int status = mkdir(BATSKY_SOCK_DIR, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-    if (status) {
-        perror("Create batsky sockets directory");
-    }
-}
 
 void _create_and_wait_connection(void) {
     char batsky_sock_name[256];
@@ -63,43 +59,53 @@ void _create_and_wait_connection(void) {
     batsky_client_len = sizeof(batsky_client_address);
     batsky_client_sockfd = accept(batsky_server_sockfd, (struct sockaddr *)&batsky_client_address, &batsky_client_len);
 
-    write(batsky_client_sockfd, &pid, 4);
+    int n = write(batsky_client_sockfd, &pid, 4);
+    if (n != 4) perror("Write incomplete");
 }
 
-
-void _get_batsky_time(struct timeval *batsky_tv, struct timeval *real_tv) {
-    write(batsky_client_sockfd, &real_tv->tv_sec, 8);
-    write(batsky_client_sockfd, &real_tv->tv_usec, 8);
-
-    read(batsky_client_sockfd, &batsky_tv->tv_sec, 8);
-    read(batsky_client_sockfd, &batsky_tv->tv_usec, 8);
+void _get_batsky_time(struct timeval *tv) {
+    int n;
+    // Ask batsky
+    n = write(batsky_client_sockfd, &tv->tv_sec, 8);
+    if (n != 8) perror("Write incomplete");
+    n = write(batsky_client_sockfd, &tv->tv_usec, 8);
+    if (n != 8) perror("Write incomplete");
+    // Receive simulated time
+    n = read(batsky_client_sockfd, &tv->tv_sec, 8);
+    if (n != 8) perror("Read incomplete");
+    n = read(batsky_client_sockfd, &tv->tv_usec, 8);
+    if (n != 8) perror("Read incomplete");
 }
 
+int _gettimeofday (struct timeval *tv) {
 
-void main(void) {
-
-    struct timeval real_tv;
-    struct timeval batsky_tv;
-
+    int ret = gettimeofday(tv, 0);
+/* if BATSKY_SOCK_DIR does not exist return the orginal gettimeofday's result */
     if( access( BATSKY_SOCK_DIR, F_OK ) == -1 ) {
-        //return INLINE_SYSCALL (gettimeofday, 2, tv, tz);
+        return ret;
     }
-
     if (batsky_init == 0) {
-        _create_socket_directory();
         _create_and_wait_connection();
         batsky_init = 1;
+    }  
+    _get_batsky_time(tv); 
+    return ret;
+}
+
+
+int main(void) {
+
+    int i;
+    struct timeval tv;
+ 
+    for (i=0; i<10; i++) {
+        if (_gettimeofday(&tv))
+            perror("gtod");
+        printf("%d: %lu.%06lu\n", i, tv.tv_sec, tv.tv_usec);
+        nanosleep((const struct timespec[]){{0, 1 * 1000000L}}, NULL);
+
     }
-    if (gettimeofday(&real_tv, 0))
-        perror("gtod");
-
-    printf("Real time: %lu.%lu\n", real_tv.tv_sec, real_tv.tv_usec);
-
-    
-    _get_batsky_time(&batsky_tv, &real_tv);
-
-    printf("Batsky time: %lu.%lu\n", batsky_tv.tv_sec, batsky_tv.tv_usec);
-
+    return 0;
 }
     /*
     FILE *cmdline = fopen("/proc/self/cmdline", "rb");
