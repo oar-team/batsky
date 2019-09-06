@@ -15,7 +15,8 @@ class Batsim(object):
         pass
 
 class Controller(object):
-    def __init__(self):
+    def __init__(self, mode):
+        self.mode = mode
         self.context = zmq.Context()
         self.socket_batsky = self.context.socket(zmq.STREAM)
         self.socket_batsky.bind("tcp://*:" + str(CONTROLLER_PORT))
@@ -47,10 +48,12 @@ class Controller(object):
                 if not self.start_time:
                     self.start_time = requested_time
                     logger.info("Start_time: {} sec".format(self.start_time))
-
-                delta = (requested_time - self.start_time)/10 # fast machine ;)
-                if delta > self.simulated_time:
-                    self.simulated_time = delta
+                if self.mode == 'incr':
+                    self.simulated_time += 0.000001
+                else:
+                    delta = (requested_time - self.start_time)/10 # fast machine ;)
+                    if delta > self.simulated_time:
+                        self.simulated_time = delta
 
                 simulated_time_str = '%.6f'%(self.simulated_time)
                     
@@ -66,8 +69,9 @@ class Controller(object):
 @click.option('-d', '--debug', is_flag=True, help='Debug flag.')
 @click.option('-l', '--logfile', type=click.STRING, help='Specify log file.')
 @click.option('-s', '--socket-endpoint', type=click.STRING,
-              help='Batsim socket endpoint to use [default: tcp://*:28000]', default='tcp://*:28000')
-def cli(debug, logfile, socket_endpoint):
+              help='Batsim socket endpoint to use.', default='tcp://*:28000')
+@click.option('-m', '--mode', type=click.STRING, help ='Time mode', default='incr')
+def cli(debug, logfile, socket_endpoint, mode):
     
     if debug:
         logger.setLevel(logging.DEBUG)
@@ -87,5 +91,5 @@ def cli(debug, logfile, socket_endpoint):
         
     logger.info('Controller running')
 
-    controller = Controller()
+    controller = Controller(mode)
     controller.run()
