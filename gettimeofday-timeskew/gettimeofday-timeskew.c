@@ -8,7 +8,7 @@
 #include <sys/un.h>
 #include <sys/stat.h> // mkdir
 #include <time.h>
-#include <pthread.h>
+#include <emmintrin.h>
 
 void _create_and_wait_connection(void);
 void _get_batsky_time(struct timeval *tv);
@@ -24,7 +24,8 @@ socklen_t batsky_client_len;
 struct sockaddr_un batsky_server_address;
 struct sockaddr_un  batsky_client_address;
 
-static pthread_mutex_t batsky_mutex = PTHREAD_MUTEX_INITIALIZER;
+//static pthread_mutex_t batsky_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int batsky_lock = 0;
 /*
   0) Test if already connected: no goto 0) yes goto 5) 
   1) Create /tmp/batsky
@@ -35,6 +36,22 @@ static pthread_mutex_t batsky_mutex = PTHREAD_MUTEX_INITIALIZER;
   6) Wait time
   7) Return
  */
+
+
+void ___spin_lock(int volatile *p)
+{
+    while(!__sync_bool_compare_and_swap(p, 0, 1))
+    {
+        // spin read-only until a cmpxchg might succeed
+        while(*p) _mm_pause();  // or maybe do{}while(*p) to pause first
+    }
+}
+
+void ___spin_unlock(int volatile *p)
+{
+    asm volatile ("":::"memory"); // acts as a memory barrier.
+    *p = 0;
+}
 
 void _create_and_wait_connection(void) {
     char batsky_sock_name[256];
@@ -81,8 +98,8 @@ int _gettimeofday (struct timeval *tv) {
 
     int ret = gettimeofday(tv, 0);
 
-    pthread_mutex_lock(&batsky_mutex);
-    
+    //pthread_mutex_lock(&batsky_mutex);
+    ___spin_lock(&batsky_lock);
      /* if BATSKY_SOCK_DIR does not exist return the orginal gettimeofday's result */
     if( access( BATSKY_SOCK_DIR, F_OK ) == -1 ) {
         return ret;
@@ -92,7 +109,8 @@ int _gettimeofday (struct timeval *tv) {
         batsky_init = 1;
     }  
     _get_batsky_time(tv);
-    pthread_mutex_unlock(&batsky_mutex);
+    ___spin_unlock(&batsky_lock);
+    //pthread_mutex_unlock(&batsky_mutex);
     return ret;
 }
 
