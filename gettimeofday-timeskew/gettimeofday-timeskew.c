@@ -8,7 +8,7 @@
 #include <sys/un.h>
 #include <sys/stat.h> // mkdir
 #include <time.h>
-
+#include <pthread.h>
 
 void _create_and_wait_connection(void);
 void _get_batsky_time(struct timeval *tv);
@@ -24,7 +24,7 @@ socklen_t batsky_client_len;
 struct sockaddr_un batsky_server_address;
 struct sockaddr_un  batsky_client_address;
 
-
+static pthread_mutex_t batsky_mutex = PTHREAD_MUTEX_INITIALIZER;
 /*
   0) Test if already connected: no goto 0) yes goto 5) 
   1) Create /tmp/batsky
@@ -80,7 +80,10 @@ void _get_batsky_time(struct timeval *tv) {
 int _gettimeofday (struct timeval *tv) {
 
     int ret = gettimeofday(tv, 0);
-/* if BATSKY_SOCK_DIR does not exist return the orginal gettimeofday's result */
+
+    pthread_mutex_lock(&batsky_mutex);
+    
+     /* if BATSKY_SOCK_DIR does not exist return the orginal gettimeofday's result */
     if( access( BATSKY_SOCK_DIR, F_OK ) == -1 ) {
         return ret;
     }
@@ -88,7 +91,8 @@ int _gettimeofday (struct timeval *tv) {
         _create_and_wait_connection();
         batsky_init = 1;
     }  
-    _get_batsky_time(tv); 
+    _get_batsky_time(tv);
+    pthread_mutex_unlock(&batsky_mutex);
     return ret;
 }
 
@@ -98,12 +102,11 @@ int main(void) {
     int i;
     struct timeval tv;
  
-    for (i=0; i<10; i++) {
+    for (i=0; i<1000; i++) {
         if (_gettimeofday(&tv))
             perror("gtod");
         printf("%d: %lu.%06lu\n", i, tv.tv_sec, tv.tv_usec);
-        nanosleep((const struct timespec[]){{0, 1 * 1000000L}}, NULL);
-
+        //nanosleep((const struct timespec[]){{0, 1 * 1000000L}}, NULL);
     }
     return 0;
 }
