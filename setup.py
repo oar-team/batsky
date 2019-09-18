@@ -21,7 +21,8 @@ changelog = read('CHANGES.rst').replace('.. :changelog:', '')
 requirements = [
     'pyzmq',
     'pyinotify',
-    'click'
+    'click',
+    'clustershell'
 ]
 
 version = ''

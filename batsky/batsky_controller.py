@@ -51,8 +51,9 @@ class Controller(object):
                 if self.mode == 'incr':
                     self.simulated_time += 0.0000001 # 100 ns
                 elif self.mode == 'echo':
-                    self.simulated_time = requested_time 
-                    delta = (requested_time - self.start_time)/10 # fast machine ;)
+                    self.simulated_time = requested_time
+                elif self.mode == 'zeroed':
+                    delta = (requested_time - self.start_time)
                     if delta > self.simulated_time:
                         self.simulated_time = delta
 
@@ -71,7 +72,7 @@ class Controller(object):
 @click.option('-l', '--logfile', type=click.STRING, help='Specify log file.')
 @click.option('-s', '--socket-endpoint', type=click.STRING,
               help='Batsim socket endpoint to use.', default='tcp://*:28000')
-@click.option('-m', '--mode', type=click.STRING, help ='Time mode', default='echo')
+@click.option('-m', '--mode', type=click.STRING, help ='Time mode', default='zeroed')
 def cli(debug, logfile, socket_endpoint, mode):
     
     if debug:
