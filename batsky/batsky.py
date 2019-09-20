@@ -51,7 +51,7 @@ def get_ask_send_time(fooled):
             usec = int.to_bytes(int(sec_usec[1]), 8, byteorder='little') 
 
     # Else echo time
-    
+    time.sleep(.001)
     fooled.sock.send(sec)
     fooled.sock.send(usec)
     
