@@ -20,6 +20,8 @@ logger = logging.getLogger()
 
 controller_sock = None
 
+ask_controller = True
+
 def get_ask_send_time(fooled):
 
     sec = fooled.sock.recv(8)
@@ -35,18 +37,21 @@ def get_ask_send_time(fooled):
     #print("First echo, time: {}.{}".format(int.from_bytes(sec,byteorder='little'),
     #                                       int.from_bytes(usec,byteorder='little')))
     # Ask time to controller
-    controller_sock.send(('{}.{}'.format(int.from_bytes(sec,byteorder='little'),
-                                                         int.from_bytes(usec,byteorder='little'))).encode('utf8')
-    )
+    if ask_controller:
+        controller_sock.send(('{}.{}'.format(int.from_bytes(sec,byteorder='little'),
+                                             int.from_bytes(usec,byteorder='little'))).encode('utf8')
+        )
+        
+        simulated_time = (controller_sock.recv(32)).decode('utf8')
+        sec_usec = simulated_time.split('.')
+        
+        sec = int.to_bytes(int(sec_usec[0]), 8, byteorder='little')
+        usec = b'\x00\x00\x00\x00\x00\x00\x00\x00'
+        if len(sec_usec) == 2:
+            usec = int.to_bytes(int(sec_usec[1]), 8, byteorder='little') 
 
-    simulated_time = (controller_sock.recv(32)).decode('utf8')
-    sec_usec = simulated_time.split('.')
-
-    sec = int.to_bytes(int(sec_usec[0]), 8, byteorder='little')
-    usec = b'\x00\x00\x00\x00\x00\x00\x00\x00'
-    if len(sec_usec) == 2:
-        usec = int.to_bytes(int(sec_usec[1]), 8, byteorder='little') 
-
+    # Else echo time
+    
     fooled.sock.send(sec)
     fooled.sock.send(usec)
     
@@ -96,8 +101,14 @@ class ProcessFooled(object):
               help='Specify options for the controller (use quoted string).')
 @click.option('-n', '--notifyer-options', type=click.STRING,
               help='Specify options for the notifyer (use quoted string).')
-def cli(debug, logfile, controller, controller_options, notifyer_options):
+@click.option('-m', '--mode', type=click.STRING,
+              help='Specify particular execution mode: echo', default='echo')
+def cli(debug, logfile, controller, controller_options, notifyer_options, mode):
 
+    if mode == 'echo':
+        global ask_controller
+        ask_controller = False
+    
     if debug:
         logger.setLevel(logging.DEBUG)
 
