@@ -102,10 +102,10 @@ class ProcessFooled(object):
 @click.option('-n', '--notifyer-options', type=click.STRING,
               help='Specify options for the notifyer (use quoted string).')
 @click.option('-m', '--mode', type=click.STRING,
-              help='Specify particular execution mode: echo', default='echo')
+              help='Specify particular execution mode: echo')
 def cli(debug, logfile, controller, controller_options, notifyer_options, mode):
 
-    if mode == 'echo':
+    if mode and mode == 'echo':
         global ask_controller
         ask_controller = False
     
