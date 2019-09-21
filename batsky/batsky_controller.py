@@ -53,9 +53,10 @@ class Controller(object):
                 elif self.mode == 'echo':
                     self.simulated_time = requested_time
                 elif self.mode == 'zeroed':
-                    delta = (requested_time - self.start_time)
-                    if delta > self.simulated_time:
-                        self.simulated_time = delta
+                    self.simulated_time = requested_time - self.start_time
+                    #delta = (requested_time - self.start_time)
+                    #if delta > self.simulated_time:
+                    #    self.simulated_time = delta
 
                 simulated_time_str = '%.6f'%(self.simulated_time)
                     
@@ -72,7 +73,7 @@ class Controller(object):
 @click.option('-l', '--logfile', type=click.STRING, help='Specify log file.')
 @click.option('-s', '--socket-endpoint', type=click.STRING,
               help='Batsim socket endpoint to use.', default='tcp://*:28000')
-@click.option('-m', '--mode', type=click.STRING, help ='Time mode: echo, incr, zeroed', default='echo')
+@click.option('-m', '--mode', type=click.STRING, help ='Time mode: echo, incr, zeroed', default='zeroed')
 def cli(debug, logfile, socket_endpoint, mode):
     
     if debug:
