@@ -53,7 +53,7 @@ class Controller(object):
                 elif self.mode == 'echo':
                     self.simulated_time = requested_time
                 elif self.mode == 'zeroed':
-                    self.simulated_time = requested_time - self.start_time
+                    self.simulated_time = requested_time - self.start_time + 10000000.0
                     #delta = (requested_time - self.start_time)
                     #if delta > self.simulated_time:
                     #    self.simulated_time = delta
