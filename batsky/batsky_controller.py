@@ -45,15 +45,19 @@ class Controller(object):
                 requested_time = float(message)
                 logger.info("received from id: {} {}".format(client_id_b, client_id))
                 logger.info("requested time: {}".format(requested_time))
+                
                 if not self.start_time:
                     self.start_time = requested_time
                     logger.info("Start_time: {} sec".format(self.start_time))
                 if self.mode == 'incr':
                     self.simulated_time += 0.0000001 # 100 ns
-                elif self.mode == 'echo':
-                    self.simulated_time = requested_time
+                elif self.mode == 'fast2':
+                    
+                    self.simulated_time = self.start_time + 2 * (requested_time - self.start_time)
                 elif self.mode == 'zeroed':
                     self.simulated_time = requested_time - self.start_time + 10000000.0
+                else: # echo mode by default
+                    self.simulated_time = requested_time
                     #delta = (requested_time - self.start_time)
                     #if delta > self.simulated_time:
                     #    self.simulated_time = delta
@@ -73,7 +77,7 @@ class Controller(object):
 @click.option('-l', '--logfile', type=click.STRING, help='Specify log file.')
 @click.option('-s', '--socket-endpoint', type=click.STRING,
               help='Batsim socket endpoint to use.', default='tcp://*:28000')
-@click.option('-m', '--mode', type=click.STRING, help ='Time mode: echo, incr, zeroed', default='echo')
+@click.option('-m', '--mode', type=click.STRING, help ='Time mode: echo, incr, zeroed, fast10', default='fast2')
 def cli(debug, logfile, socket_endpoint, mode):
     
     if debug:
