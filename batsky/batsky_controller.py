@@ -73,7 +73,7 @@ class Controller(object):
 @click.option('-l', '--logfile', type=click.STRING, help='Specify log file.')
 @click.option('-s', '--socket-endpoint', type=click.STRING,
               help='Batsim socket endpoint to use.', default='tcp://*:28000')
-@click.option('-m', '--mode', type=click.STRING, help ='Time mode: echo, incr, zeroed', default='zeroed')
+@click.option('-m', '--mode', type=click.STRING, help ='Time mode: echo, incr, zeroed', default='echo')
 def cli(debug, logfile, socket_endpoint, mode):
     
     if debug:
