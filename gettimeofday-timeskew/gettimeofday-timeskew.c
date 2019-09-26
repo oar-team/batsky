@@ -101,14 +101,13 @@ int _gettimeofday (struct timeval *tv) {
     //pthread_mutex_lock(&batsky_mutex);
     ___spin_lock(&batsky_lock);
      /* if BATSKY_SOCK_DIR does not exist return the orginal gettimeofday's result */
-    if( access( BATSKY_SOCK_DIR, F_OK ) == -1 ) {
-        return ret;
+    if( access( BATSKY_SOCK_DIR, F_OK ) != -1 ) {
+        if (batsky_init == 0) {
+            _create_and_wait_connection();
+            batsky_init = 1;
+        }  
+        _get_batsky_time(tv);
     }
-    if (batsky_init == 0) {
-        _create_and_wait_connection();
-        batsky_init = 1;
-    }  
-    _get_batsky_time(tv);
     ___spin_unlock(&batsky_lock);
     //pthread_mutex_unlock(&batsky_mutex);
     return ret;
