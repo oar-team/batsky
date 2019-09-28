@@ -8,6 +8,7 @@ import socket
 import select
 import errno
 import subprocess
+import signal
 
 BATSKY_SOCK_DIR = '/tmp/batsky'
 BATSKY_NOTIFY_SOCK = BATSKY_SOCK_DIR + '/notify.sock'
@@ -18,10 +19,29 @@ fd2fooleds = {}
 
 logger = logging.getLogger()
 
+controller_name = ''
 controller_sock = None
 
 ask_controller = True
 
+
+def connect_controller():
+    global controller_sock
+    delay = 0.001
+    controller_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    connected = False
+    while not connected:
+        try: 
+            controller_sock.connect((controller_name, CONTROLLER_PORT))
+            connected = True
+        except OSError as error:
+            if error.errno == errno.ECONNREFUSED:
+                logger.debug("Try to connect to controller: {}".format(controller_name))
+                time.sleep(delay)
+                if delay < 0.7:
+                    delay = 1.3*delay
+    logger.debug("Connected to controller: {}".format(controller_name))
+    
 def get_ask_send_time(fooled):
 
     sec = fooled.sock.recv(8)
@@ -38,11 +58,22 @@ def get_ask_send_time(fooled):
     #                                       int.from_bytes(usec,byteorder='little')))
     # Ask time to controller
     if ask_controller:
-        controller_sock.send(('{}.{}'.format(int.from_bytes(sec,byteorder='little'),
-                                             int.from_bytes(usec,byteorder='little'))).encode('utf8')
-        )
-        
-        simulated_time = (controller_sock.recv(32)).decode('utf8')
+        simulated_time = ''
+        while simulated_time == '' : 
+            try:
+                controller_sock.send(('{}.{}'.format(int.from_bytes(sec,byteorder='little'),
+                                                     int.from_bytes(usec,byteorder='little'))).encode('utf8')
+                )
+                
+                simulated_time = (controller_sock.recv(32)).decode('utf8')
+            except socket.error as e:
+                logger.info("Controller connection failed: {}".format(e))
+            if simulated_time == '':
+                logger.debug("Try to reconnect with controller: {}".
+                             format(controller_name))
+                connect_controller()
+                time.sleep(.1)
+                
         sec_usec = simulated_time.split('.')
         
         sec = int.to_bytes(int(sec_usec[0]), 8, byteorder='little')
@@ -51,10 +82,12 @@ def get_ask_send_time(fooled):
             usec = int.to_bytes(int(sec_usec[1]), 8, byteorder='little') 
 
     # Else echo time
-    time.sleep(.001)
-    fooled.sock.send(sec)
-    fooled.sock.send(usec)
-    
+  
+    try:
+        fooled.sock.send(sec)
+        fooled.sock.send(usec)
+    except socket.error as e:
+        return False
     return True
 
 class ProcessFooled(object):
@@ -93,6 +126,9 @@ class ProcessFooled(object):
         fd2fooleds[self.sock.fileno()] = self
         # Signal main loop of the new participant arrival        
 
+def handler(signum, frame):
+    print("Signal");
+        
 @click.command()
 @click.option('-d', '--debug', is_flag=True, help='Debug flag.')
 @click.option('-l', '--logfile', type=click.STRING, help='Specify log file.')
@@ -103,8 +139,21 @@ class ProcessFooled(object):
               help='Specify options for the notifyer (use quoted string).')
 @click.option('-m', '--mode', type=click.STRING,
               help='Specify particular execution mode: echo')
-def cli(debug, logfile, controller, controller_options, notifyer_options, mode):
+@click.option('-u', '--not-launch-controller', is_flag=True, default=False,
+              help='Not launch controller.')
+def cli(debug, logfile, controller, controller_options, notifyer_options, mode, not_launch_controller):
 
+    #def handler(signum, frame):
+    #    logger.info("Receive Signal: {} {}".format(signum, frame));
+        
+    #for i in [x for x in dir(signal) if x.startswith("SIG")]:
+    #    try:
+    #        signum = getattr(signal,i)
+    #        signal.signal(signum, handler)
+    #        print(i,signum)
+    #    except (OSError, ValueError) as m: #OSError for Python3, RuntimeError for 2
+    #        print ("Skipping {}".format(i))
+                
     if mode and mode == 'echo':
         global ask_controller
         ask_controller = False
@@ -126,7 +175,9 @@ def cli(debug, logfile, controller, controller_options, notifyer_options, mode):
         logger.addHandler(handler)
         
     logger.info('Controller: %s', controller)
-
+    global controller_name
+    controller_name = controller
+    
     if not os.path.exists(BATSKY_SOCK_DIR):
         os.makedirs(BATSKY_SOCK_DIR)
 
@@ -152,33 +203,30 @@ def cli(debug, logfile, controller, controller_options, notifyer_options, mode):
     logger.debug("Connected to batsky notifyer")
     
 
-    if controller and controller==socket.gethostname():
+    if controller and controller==socket.gethostname() and not not_launch_controller:
         cmd = ['batsky-controller']
         if controller_options:
             cmd += controller_options.split()
         subprocess.Popen(cmd)
 
-        
-    global controller_sock
     
     if controller:
-        controller_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        connected = False
-        while not connected:
-            try: 
-                controller_sock.connect((controller, CONTROLLER_PORT))
-                connected = True
-            except OSError as error:
-                if error.errno == errno.ECONNREFUSED:
-                    logger.debug("Try to connect to controller: {}".format(controller))
-                    time.sleep(0.5)    
+        connect_controller()
         
     # main loop
     while True:
         #logger.debug("Main loop: wait on select")
         #logger.debug("select_pipe_read: %d", select_pipe_read)
         ready_fds = select.select(list(fd2fooleds.keys()) + [batsky_notify_sock.fileno()] , [], list(fd2fooleds.keys()) + [batsky_notify_sock.fileno()])
+        
         #print(ready_fds[0])
+        #for fd in ready_fds[2]: #error
+        #    logger.error("Select: socker error : {}".format(fd))
+        #    if fd == controller_sock.fileno():
+        #        logger.debug("Select: error connection with controller: {}, try to reconnect".
+        #                     format(controller_name))
+        #        connect_controller()
+                
         for fd in ready_fds[0]:
             if fd == batsky_notify_sock.fileno():
                 # Add another fd to my_read_fds, etc.
@@ -203,6 +251,7 @@ def cli(debug, logfile, controller, controller_options, notifyer_options, mode):
 
         for fd in ready_fds[2]:
             logger.debug("Something happen to fd: %d", fd) 
-        
+
+    logger.debug("Something strange happen") 
     notifier.stop()
     
