@@ -62,5 +62,7 @@ setup(
     batsky=batsky.batsky:cli
     batsky-notify=batsky.batsky_notify:cli
     batsky-controller=batsky.batsky_controller:cli
+    batsky-job=batsky.batsky_job:cli
+    batsky-sim=batsky.batsky_sim:cli
     ''',    
 )
