@@ -12,7 +12,7 @@ FAKE_JOB_PORT = 27100
 @click.option('-d', '--debug', is_flag=True, help='Debug flag.')
 @click.option('-l', '--logfile', type=click.STRING, help='Specify log file.')
 @click.option('-c', '--controller', type=click.STRING, help='Specify which hostname is the controller.')
-@click.option('-w', '--workload-jobid', type=int, help="Wokload's Job id")
+@click.option('-w', '--workload-jobid', type=click.STRING, help="Wokload's Job id")
 def cli(debug, logfile, controller, workload_jobid):
     
     if debug:
@@ -48,7 +48,7 @@ def cli(debug, logfile, controller, workload_jobid):
 
     # Wait 
     wait_finalize = finalize_sock.recv_json()
-    logger.info('Finalize')
+    logger.info('Finalized')
     
 if __name__ == '__main__':
     cli()

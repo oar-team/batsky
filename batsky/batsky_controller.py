@@ -192,26 +192,29 @@ class FakeBatsim(object):
         self._current_time = batsim_time
 
         for event in events:
-            event_type = event["type"]
-            event_data = event.get("data", {})
-            if event_type == "SIMULATION_BEGINS":
+            event_type = event['type']
+            event_data = event.get('data', {})
+            
+            if event_type == 'SIMULATION_BEGINS':
                 assert not self.running_simulation, "A simulation is already running (is more than one instance of Batsim active?!)"
                 self.running_simulation = True
-                self.batsky_sched.onSimulationBegins()    
-            elif event_type == "SIMULATION_ENDS":
+                self.batsky_sched.onSimulationBegins()
+
+            elif event_type == 'SIMULATION_ENDS':
                 self.batsky_sched.onSimulationEnds()
-            elif event_type == "":
-                job_id = event_data["job_id"]
+
+            elif event_type == 'JOB_SUBMITTED':
+                job_id = event_data['job_id']
                 job, profile = self.get_job_and_profile(event)
                 job.job_state = Job.State.SUBMITTED
                 self.nb_jobs_submitted += 1
                 self.jobs[job_id] = job
                 self.batsky_sched.onJobSubmission(job)
                 
-            elif event_type == "JOB_COMPLETED":
-                job_id = event_data["job_id"]
+            elif event_type == 'JOB_COMPLETED':
+                job_id = event_data['job_id']
                 j = self.jobs[job_id]
-                j.finish_time = event["timestamp"]
+                j.finish_time = event['timestamp']
                 self.batsky_sched.onJobCompletion(j)
                 if j.job_state == Job.State.COMPLETED_WALLTIME_REACHED:
                     self.nb_jobs_timeout += 1
@@ -225,6 +228,7 @@ class FakeBatsim(object):
                 
             elif event_type == 'REQUESTED_CALL':
                 self.batsky_sched.onRequestedCall()
+
         return True
 
     def get_job_and_profile(self, event):
