@@ -4,17 +4,47 @@
 from enum import Enum
 import logging
 import time
+import datetime
 import click
+import socket
 import zmq
+from subprocess import call
 from sortedcontainers import SortedDict # for fake_events (test only)
 from ClusterShell.NodeSet import NodeSet
 
 RJMS_WARMUP_DURATION = 0.5
-RJMS_WAKE_UP_PERIOD = 1.0
+RJMS_WAKE_UP_PERIOD = 2.5
 
 CONTROLLER_PORT = 27000
 BATSKY_JOB_PORT = 27100
+
 logger = logging.getLogger()
+
+
+class RJMSJob(object):
+    class State(Enum):
+        UNKNOWN = -1
+        IN_SUBMISSON = 0
+        SUBMITTED = 1
+        RUNNING = 2
+        COMPLETED_SUCCESSFULLY = 3
+        COMPLETED_FAILED = 4
+        COMPLETED_WALLTIME_REACHED = 5
+        COMPLETED_KILLED = 6
+        REJECTED = 7
+        IN_KILLING = 8
+        
+    def __init__(self, id, batsim_job):
+        self.id = id
+        self.batsim_job = batsim_job
+        self.allocation = None
+        self.hostname = None
+        self.port = None
+        self.state = RJMSJob.State.UNKNOWN
+    def __repr__(self):
+        return(
+            ("{{RJMS Job {0}; state: {1} port: {2} allocation: {3}}}\n").format(
+                 self.id, self.state, self.port, self.allocation))
 
 class Job(object):
 
@@ -118,13 +148,14 @@ class BatskySched(object):
     def rjms_round(self):
         round_time, rjms_events = self.controller.rjms_round(self.bs.time())
         if rjms_events:
-            logger.error('TODO process event')
-            pass
-
+            if 'jobs_to_execute' in rjms_events:
+                self.bs.execute_jobs(rjms_events['jobs_to_execute'])
+            else:
+                logger.error('TODO process unsupported events: '.format(rjms_events))
         # add call me latter
         self.bs.wake_me_up_at(self.bs.time() + RJMS_WAKE_UP_PERIOD)
         
-        #self.bs.execute_jobs(jobs)
+        
         
 class FakeBatsim(object):
     
@@ -136,6 +167,7 @@ class FakeBatsim(object):
         
         self._current_time = 0
         self.nb_jobs_submitted = 0
+        self.nb_jobs_completed = 0
         
         self.running_simulation = False
         
@@ -143,8 +175,8 @@ class FakeBatsim(object):
             0.0: [{'timestamp': 0.0, 'type': 'SIMULATION_BEGINS', 'data': {}}],
             5.0: [{'timestamp': 5.0, 'type': 'JOB_SUBMITTED', 'data':
                    {'job_id': 'w0!1',
-                    'job': {'id':'w0!1', 'subtime': 5.0, 'res': 1, 'walltime': 12.0 },
-                    'profile': {'type': 'delay', 'delay': 10}
+                    'job': {'id':'w0!1', 'subtime': 5.0, 'res': 1, 'walltime': 12,
+                    'profile': {'type': 'delay', 'delay': 10}}
                    }}],
             20.0: [{'timestamp': 20.0, 'type': 'SIMULATION_ENDS', 'data': {}}] 
         })
@@ -172,12 +204,22 @@ class FakeBatsim(object):
         self._fake_events.update({at_time: events})
 
     def execute_jobs(self, jobs):
-        pass
-        # "timestamp": 1012,
-        #"type": "EXECUTE_JOB",
-        #"data": {
-        #"job_id": "workload!job_1235",
-        #"alloc": "12-100",
+        # Generate the events of completion 
+    
+        for job in jobs:
+            events= []
+            completion_time = self.time() + job.profile['delay']
+            if completion_time in self._fake_events:
+                events = self._fake_events.get(completion_time)
+                
+            assert job.profile['type'] == 'delay'
+            events.append({'timestamp': completion_time, 'type': 'JOB_COMPLETED',
+                           'data': {'job_id': job.id}})
+            logger.debug('Execute_job (insert completion events for job: {} completion_time: {}'.
+                         format(job.id, completion_time))
+            
+            self._fake_events.update({completion_time: events})
+
     def start(self):
         cont = True
         while cont:
@@ -243,10 +285,13 @@ class FakeBatsim(object):
         return job, profile
 
 
-    
 class Controller(object):
-    def __init__(self, mode):
+    def __init__(self, mode, controller_name=None):
         self.mode = mode
+        self.controller_name = controller_name
+        if not controller_name:
+            self.controller_name = socket.gethostname()
+
         self.context = zmq.Context()
         self.batsky_socket = self.context.socket(zmq.STREAM)
         self.batsky_socket.bind("tcp://*:" + str(CONTROLLER_PORT))
@@ -265,7 +310,7 @@ class Controller(object):
         
         self.batskyers = {}
 
-        self.running_jobs = {}
+        self.rjms_jobs = {}
 
 
     def read_basky_socket(self):
@@ -280,6 +325,10 @@ class Controller(object):
         message_b = (message).encode('utf8')        
         self.batsky_socket.send_multipart((client_id_b, message_b))
         
+    def map_allocation2nodeset(self, allocation):
+        # TODO for use w/ the real batsim
+        return allocation
+            
     def rjms_warmup(self):
         logger.debug('RJMS Warm Up')
         while (not self.rjms_start_time or
@@ -307,13 +356,39 @@ class Controller(object):
                     logger.error('Not the expected socket')
 
     def rjms_job_submission(self, job):
-        logger.debug("TODO rjms_job_submission")
 
+        rjms_job = RJMSJob(job.id, job)
+        self.rjms_jobs[job.id] = rjms_job
+
+        slurm_cmd = 'batch -N{} -t {} '.format(job.requested_resources,
+                                               datetime.timedelta(seconds=int(job.requested_time)))
+        dev_cmd = 'SLURM_NODELIST=node1 '
+        rjms_base_cmd = dev_cmd
+        background = '&'
+        rjms_cmd = rjms_base_cmd + 'batsky-job -l /tmp/batsky-job.log -d -c {} -w {} {}'\
+                   .format(self.controller_name, job.id, background)
+        logger.debug('Submit: {}'.format(rjms_cmd))
+        try:
+            retcode = call(rjms_cmd, shell=True)
+            if retcode < 0:
+                logger.error('Job submission return an error code: {}'.format(retcode))
+        except OSError as e:
+            logger.error('Job submission failed: {}'.format(e))
+            
     def rjms_job_completion(self, job):
-        logger.debug("TODO rjms_job_completion")
+        #Signal batsky_job
+        #import pdb; pdb.set_trace()
+        logger.debug("Job completion, signals batsky_job; job_id: {}".format(job.id))
+        rjms_job = self.rjms_jobs[job.id]
+        finalize_sock = self.context.socket(zmq.PUSH)
+        #import pdb; pdb.set_trace()
+        finalize_sock.connect("tcp://{}:{}".format(rjms_job.hostname, rjms_job.port))
+        finalize_sock.send_json({'next_state': 'completed'})
+        finalize_sock.close()
+        rjms_job.state = RJMSJob.State.COMPLETED_SUCCESSFULLY
         
     def rjms_round(self, batsim_time):
-        rjms_events = []
+        rjms_events = {}
         self.rjms_simulated_time = self.rjms_simulated_start_time + batsim_time
 
         round_time_t0 = time.time()
@@ -325,10 +400,26 @@ class Controller(object):
                 client_id_b, client_id, message = self.read_basky_socket()
                 if message:
                     requested_time = float(message)
-                    logger.info("Request client_id, time: {} {}".
+                    logger.info('Request client_id, time: {} {}'.
                                 format(client_id, requested_time))
                     self.send_batsky_socket(client_id_b, '%.6f'%(self.rjms_simulated_time) )
-        
+            elif sock == self.jobs_socket:
+                allocation_data = self.jobs_socket.recv_json()
+                job_id = allocation_data['job_id']
+                job = self.rjms_jobs[job_id]
+                job.allocation = allocation_data['nodeset']
+                job.batsim_job.allocation = self.map_allocation2nodeset(allocation_data['nodeset'])
+                job.port = allocation_data['port']
+                job.hostname = allocation_data['hostname']
+                logger.info('RJMS is launching the job: {}'.format(job_id))
+
+                #TODO loop again or test is there is another waiting job to execute
+                
+                rjms_events['jobs_to_execute'] = [job.batsim_job]
+            else:
+                # Will never reach this place
+                logger.error('Unexpect socket in rjms_round !')
+                    
         round_time = time.time() - round_time_t0
         logger.debug('Controller Round time: {}'.format(round_time))
         #import pdb; pdb.set_trace()
@@ -387,10 +478,23 @@ class Controller(object):
 @click.command()
 @click.option('-d', '--debug', is_flag=True, help='Debug flag.')
 @click.option('-l', '--logfile', type=click.STRING, help='Specify log file.')
-@click.option('-s', '--socket-endpoint', type=click.STRING,
+@click.option('-s', '--submission-hostname', type=click.STRING, help='Specify the host to execute submission commande (TODO).')
+@click.option('-b', '--batsim-socket', type=click.STRING,
               help='Batsim socket endpoint to use.', default='tcp://*:28000')
+@click.option('-r', '--rjms', type=click.STRING, default='slurm',
+              help= 'Select resources and jobs management system.')  
+@click.option('-S', '--internal-delay-simulator', is_flag=True,
+              help="Use simple internal simulator which support only the delay execution job's profile") 
 @click.option('-m', '--mode', type=click.STRING, help ='Time mode: echo, incr, zeroed, fast10', default='fast2')
-def cli(debug, logfile, socket_endpoint, mode):
+def cli(debug, logfile, submission_hostname, batsim_socket, rjms, internal_delay_simulator, mode):
+
+    if submission_hostname:
+        logger.error('submission_hostname option NOT YET IMPLEMENTED')
+        exit(-1)
+
+    if rjms != 'slurm':
+        logger.error('Up to now, only slurm is supported')
+        exit(-1)
 
     if debug:
         logger.setLevel(logging.DEBUG)
@@ -409,11 +513,13 @@ def cli(debug, logfile, socket_endpoint, mode):
         
     logger.info('Controller running')
 
-    controller = Controller(mode)
-    batsky_scheduler = BatskySched(controller)
-    fake_batsim = FakeBatsim(batsky_scheduler)
-    
-    fake_batsim.start()
-    
+    if internal_delay_simulator:
+        controller = Controller(mode)
+        batsky_scheduler = BatskySched(controller)
+        fake_batsim = FakeBatsim(batsky_scheduler)        
+        fake_batsim.start()
+    else:
+        logger.error('Batsim NOT YET SUPPORTED')
+
 if __name__ == '__main__':
     cli()

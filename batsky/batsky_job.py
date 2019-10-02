@@ -2,11 +2,14 @@
 # -*- coding: utf-8 -*-
 
 import os
+import socket
 import zmq
 import click
 import logging
 
 FAKE_JOB_PORT = 27100
+
+logger = logging.getLogger()
 
 @click.command()
 @click.option('-d', '--debug', is_flag=True, help='Debug flag.')
@@ -42,13 +45,17 @@ def cli(debug, logfile, controller, workload_jobid):
     # get the nodelist form Slurm
     nodeset = os.environ['SLURM_NODELIST']
     
-    logger.info('Job: {}, nodeset: {}, port {}'.format(workload_jobid, nodeset, finalize_port))
-    controller_sock.send_json({'wjid': int(workload_jobid), 'nodeset': nodeset,
-                               'port': int(finalize_port)})
+    logger.debug('Job: {}, nodeset: {}, port {}'.format(workload_jobid, nodeset, finalize_port))
+    controller_sock.send_json({'job_id': workload_jobid, 'nodeset': nodeset,
+                               'hostname': socket.gethostname(), 'port': int(finalize_port)})
 
-    # Wait 
-    wait_finalize = finalize_sock.recv_json()
-    logger.info('Finalized')
-    
+    # Wait
+    logger.debug('Wait the finalized signal: {}'.format(workload_jobid))
+    finalize_state = finalize_sock.recv_json()
+    next_state = finalize_state['next_state']
+    logger.info('Finalized with state:'.format(next_state))
+    if next_state != 'completed':
+        logger.erro('State "{}" not supported'.format(next_state))
+
 if __name__ == '__main__':
     cli()
