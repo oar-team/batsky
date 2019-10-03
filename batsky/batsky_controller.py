@@ -12,8 +12,8 @@ from subprocess import call
 from sortedcontainers import SortedDict # for fake_events (test only)
 from ClusterShell.NodeSet import NodeSet
 
-RJMS_WARMUP_DURATION = 0.5
-RJMS_WAKE_UP_PERIOD = 2.5
+RJMS_WARMUP_DURATION = 5
+RJMS_WAKE_UP_PERIOD = 0.01
 
 CONTROLLER_PORT = 27000
 BATSKY_JOB_PORT = 27100
@@ -129,6 +129,8 @@ class BatskySched(object):
 
     def onSimulationEnds(self):
         logger.info("That's All Folk")
+        #logger.info("Return into an echo mode")
+        #self.controller.rjms_end_echo()
         exit()
         
     def onJobSubmission(self, job):
@@ -215,7 +217,7 @@ class FakeBatsim(object):
             assert job.profile['type'] == 'delay'
             events.append({'timestamp': completion_time, 'type': 'JOB_COMPLETED',
                            'data': {'job_id': job.id}})
-            logger.debug('Execute_job (insert completion events for job: {} completion_time: {}'.
+            logger.debug('Execute_job: insert completion events for job: {} completion_time: {}'.
                          format(job.id, completion_time))
             
             self._fake_events.update({completion_time: events})
@@ -312,7 +314,6 @@ class Controller(object):
 
         self.rjms_jobs = {}
 
-
     def read_basky_socket(self):
         client_id_b, message_b = self.batsky_socket.recv_multipart()  
         client_id = int.from_bytes(client_id_b,byteorder='big')
@@ -331,8 +332,9 @@ class Controller(object):
             
     def rjms_warmup(self):
         logger.debug('RJMS Warm Up')
-        while (not self.rjms_start_time or
-               (self.rjms_simulated_time - self.rjms_start_time) < RJMS_WARMUP_DURATION):
+        t0 = time.time()
+        while (self.mode=='echo') or (not self.rjms_start_time or
+            (time.time() - t0) < RJMS_WARMUP_DURATION):
             for sock in dict(self.poller.poll()):
                 if sock == self.batsky_socket:
                     client_id_b, client_id, message = self.read_basky_socket()
@@ -355,18 +357,50 @@ class Controller(object):
                 else:
                     logger.error('Not the expected socket')
 
+    def rjms_end_echo(self):
+        t0 = time.time()
+        new_start_time = self.rjms_simulated_time
+        while True:
+            for sock in dict(self.poller.poll()):
+                if sock == self.batsky_socket:
+                    client_id_b, client_id, message = self.read_basky_socket()
+                    if message:
+                        requested_time = float(message)
+                        logger.info("Request client_id, time: {} {}".
+                                    format(client_id, requested_time))
+
+                        delta_t = requested_time - t0
+                        new_rjms_simulated_time = delta_t + new_start_time
+                        
+                        # Force monotonic time
+                        if new_rjms_simulated_time > self.rjms_simulated_time:
+                            self.rjms_simulated_time = new_rjms_simulated_time
+                        
+                        # Echo time during warmup phase
+                        rjms_simulated_time_str = '%.6f'%(self.rjms_simulated_time)
+                        logger.info('RJMS Simulated Time {}'.format(rjms_simulated_time_str))
+                        self.send_batsky_socket(client_id_b, rjms_simulated_time_str)
+                else:
+                    logger.error('Not the expected socket')
+
+        
     def rjms_job_submission(self, job):
 
         rjms_job = RJMSJob(job.id, job)
         self.rjms_jobs[job.id] = rjms_job
 
-        slurm_cmd = 'batch -N{} -t {} '.format(job.requested_resources,
-                                               datetime.timedelta(seconds=int(job.requested_time)))
-        dev_cmd = 'SLURM_NODELIST=node1 '
-        rjms_base_cmd = dev_cmd
-        background = '&'
-        rjms_cmd = rjms_base_cmd + 'batsky-job -l /tmp/batsky-job.log -d -c {} -w {} {}'\
-                   .format(self.controller_name, job.id, background)
+        slurm_cmd = 'sbatch -N{} -t {} --output=/tmp/res.txt --wrap "'.format(job.requested_resources,
+                                                                              datetime.timedelta(seconds=int(job.requested_time)))
+
+        rjms_base_cmd = 'SLURM_NODELIST=node1 ' 
+        rjms_base_cmd = slurm_cmd
+        #batsky_job_cmd = '/batsky/batsky/batsky_job.py -l /tmp/batsky-job.log -d '
+        batsky_job_cmd = 'batsky-job -l /tmp/batsky-job.log -d '
+        #background = '&'
+        background = '"&'
+        rjms_cmd = rjms_base_cmd + batsky_job_cmd +'-c {} -w \'{}\' {}'.format(self.controller_name,
+                                                                               job.id, background)
+        #rjms_cmd = 'date'
         logger.debug('Submit: {}'.format(rjms_cmd))
         try:
             retcode = call(rjms_cmd, shell=True)
@@ -374,7 +408,8 @@ class Controller(object):
                 logger.error('Job submission return an error code: {}'.format(retcode))
         except OSError as e:
             logger.error('Job submission failed: {}'.format(e))
-            
+            exit(-1)
+
     def rjms_job_completion(self, job):
         #Signal batsky_job
         #import pdb; pdb.set_trace()
@@ -384,6 +419,7 @@ class Controller(object):
         #import pdb; pdb.set_trace()
         finalize_sock.connect("tcp://{}:{}".format(rjms_job.hostname, rjms_job.port))
         finalize_sock.send_json({'next_state': 'completed'})
+        #logger.debug("Signal sent............................")
         finalize_sock.close()
         rjms_job.state = RJMSJob.State.COMPLETED_SUCCESSFULLY
         
@@ -485,7 +521,7 @@ class Controller(object):
               help= 'Select resources and jobs management system.')  
 @click.option('-S', '--internal-delay-simulator', is_flag=True,
               help="Use simple internal simulator which support only the delay execution job's profile") 
-@click.option('-m', '--mode', type=click.STRING, help ='Time mode: echo, incr, zeroed, fast10', default='fast2')
+@click.option('-m', '--mode', type=click.STRING, help ='Time mode: echo or None')
 def cli(debug, logfile, submission_hostname, batsim_socket, rjms, internal_delay_simulator, mode):
 
     if submission_hostname:

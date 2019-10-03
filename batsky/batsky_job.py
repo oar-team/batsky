@@ -53,7 +53,7 @@ def cli(debug, logfile, controller, workload_jobid):
     logger.debug('Wait the finalized signal: {}'.format(workload_jobid))
     finalize_state = finalize_sock.recv_json()
     next_state = finalize_state['next_state']
-    logger.info('Finalized with state:'.format(next_state))
+    logger.info('Finalized with state: {}'.format(next_state))
     if next_state != 'completed':
         logger.erro('State "{}" not supported'.format(next_state))
 
