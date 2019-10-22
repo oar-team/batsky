@@ -1,4 +1,5 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
+
 import os
 import time
 import logging
@@ -132,7 +133,8 @@ def handler(signum, frame):
 @click.command()
 @click.option('-d', '--debug', is_flag=True, help='Debug flag.')
 @click.option('-l', '--logfile', type=click.STRING, help='Specify log file.')
-@click.option('-c', '--controller', type=click.STRING, help='Specify which hostname is the controller.')
+@click.option('-c', '--controller',  required=True, type=click.STRING,
+              help='Specify which hostname is the controller.')
 @click.option('-o', '--controller-options', type=click.STRING,
               help='Specify options for the controller (use quoted string).')
 @click.option('-n', '--notifyer-options', type=click.STRING,
@@ -255,3 +257,5 @@ def cli(debug, logfile, controller, controller_options, notifyer_options, mode, 
     logger.debug("Something strange happen") 
     notifier.stop()
     
+if __name__ == '__main__':
+    cli()

@@ -1,0 +1,22 @@
+{
+    "version": 0,
+    "date": "Wed  6 Sep 17:41:23 CEST 2017",
+    "description": "Simple workload with delays for testing purposes.",
+    "jobs": [
+        {
+            "id": 0,
+            "profile": "delay",
+            "res": 10,
+            "walltime": 300,
+            "subtime": 0.0
+        }
+    ],
+    "nb_res": 4,
+    "profiles": {
+        "delay": {
+            "type": "delay",
+            "delay": 60.00
+        }
+    }
+}
+
