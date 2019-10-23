@@ -19,11 +19,28 @@ RJMS_COOL_DOWN_DURATION = 5.0
 
 #RJMS_WAKE_UP_PERIOD = 0.1
 
-RJMS_WAKE_UP_PERIOD_MIN = 0.05
-RJMS_WAKE_UP_PERIOD_COEF = 1.2
+#OK v0
+#RJMS_WAKE_UP_PERIOD_MIN = 0.05
+#RJMS_WAKE_UP_PERIOD_COEF = 1.2
+#RJMS_WAKE_UP_PERIOD_MAX = 64
+
+#RJMS_PULL_DURATION = 0.3
+#RJMS_PULL_INTER_SLEEP = 0.001
+
+#OK v1
+# RJMS_WAKE_UP_PERIOD_MIN = 0.01
+# RJMS_WAKE_UP_PERIOD_COEF = 1.5
+# RJMS_WAKE_UP_PERIOD_MAX = 64
+
+# RJMS_PULL_DURATION = 0.1
+# RJMS_PULL_INTER_SLEEP = 0.001
+
+#OK
+RJMS_WAKE_UP_PERIOD_MIN = 0.01
+RJMS_WAKE_UP_PERIOD_COEF = 1.5
 RJMS_WAKE_UP_PERIOD_MAX = 64
 
-RJMS_PULL_DURATION = 0.3
+RJMS_PULL_DURATION = 0.1
 RJMS_PULL_INTER_SLEEP = 0.001
 
 CONTROLLER_PORT = 27000
@@ -165,6 +182,10 @@ class BatskySched(object):
         self.rjms_round(False)
 
     def rjms_round(self, reset_rjms_wake_up_period=True):
+
+        if reset_rjms_wake_up_period:
+             self.rjms_wake_up_period = RJMS_WAKE_UP_PERIOD_MIN
+             
         round_time, rjms_events = self.controller.rjms_round(self.bs.time())
         self.bs.consume_time(round_time)
         if rjms_events:
@@ -179,8 +200,6 @@ class BatskySched(object):
         #        
         # Add call me latter with backoff time
         #
-        if reset_rjms_wake_up_period:
-             self.rjms_wake_up_period = RJMS_WAKE_UP_PERIOD_MIN
 
         next_wake_up = self.bs.time() + self.controller.rjms_wake_up_period     
         logger.debug('RJMS_WAKE_UP_PERIOD: {}'.format(self.controller.rjms_wake_up_period))
