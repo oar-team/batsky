@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# TODO: switch to asynchronous launch (Popen) for sbatch
+
 from enum import Enum
 import logging
 import time
@@ -8,7 +10,7 @@ import click
 import socket
 import zmq
 import json
-from subprocess import call
+from subprocess import call, Popen
 from sortedcontainers import SortedDict # for fake_events (test only)
 from ClusterShell.NodeSet import NodeSet
 
@@ -376,8 +378,10 @@ class FakeBatsim(object):
 
 
 class Controller(object):
-    def __init__(self, mode, controller_name=None):
+    def __init__(self, mode, start_command, stop_command=None, controller_name=None):
         self.mode = mode
+        self.start_command = start_command
+        self.stop_command = stop_command
         self.controller_name = controller_name
         if not controller_name:
             self.controller_name = socket.gethostname()
@@ -424,6 +428,10 @@ class Controller(object):
             
     def rjms_warmup(self):
         logger.debug('RJMS Warm Up')
+        if self.start_command:
+            logger.debug('Launch start command: {}'.format(self.start_command))
+            Popen(self.start_command.split())
+    
         t0 = time.time()
         while (self.mode=='echo') or (not self.rjms_start_time or
             (time.time() - t0) < RJMS_WARM_UP_DURATION):
@@ -452,7 +460,11 @@ class Controller(object):
         logger.debug('RJMS Warm Up done')
 
     def rjms_cooldown(self):
-        logger.debug('RJMS Cooling down')
+        logger.debug('RJMS Cooling down begins')
+        if self.stop_command:
+             logger.debug('Launch stop command: {}'.format(self.stop_command))
+             Popen(self.stop_command.split())
+    
         t0 = time.time()
         new_start_time = self.rjms_simulated_time
         while (time.time() - t0) < RJMS_COOL_DOWN_DURATION:
@@ -582,7 +594,10 @@ class Controller(object):
               help="Use simple internal simulator which support only the delay execution job's profile") 
 @click.option('-m', '--mode', type=click.STRING, help ='Time mode: echo or None')
 @click.option('-w', '--workload-file', type=click.STRING, help='Workload file name')
-def cli(debug, logfile, submission_hostname, batsim_socket, rjms, internal_delay_simulator, workload_file, mode):
+@click.option('-a', '--start-command',  type=click.STRING, help='command launch at warm up')
+@click.option('-e', '--stop-command',  type=click.STRING, help='command launch at cooling down')
+
+def cli(debug, logfile, submission_hostname, batsim_socket, rjms, internal_delay_simulator, workload_file, mode, start_command, stop_command):
 
     if submission_hostname:
         logger.error('submission_hostname option NOT YET IMPLEMENTED')
@@ -610,7 +625,7 @@ def cli(debug, logfile, submission_hostname, batsim_socket, rjms, internal_delay
     logger.info('Controller running')
 
     if internal_delay_simulator:
-        controller = Controller(mode)
+        controller = Controller(mode, start_command, stop_command)
         batsky_scheduler = BatskySched(controller)
         fake_batsim = FakeBatsim(batsky_scheduler, workload_file)        
         fake_batsim.start()
